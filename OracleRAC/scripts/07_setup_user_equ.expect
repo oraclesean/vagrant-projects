@@ -28,11 +28,10 @@
 set timeout 20
 set username [lindex $argv 0]
 set password [lindex $argv 1]
-set node1    [lindex $argv 2]
-set node2    [lindex $argv 3]
-set path     [lindex $argv 4]
+set nodes    [lindex $argv 2]
+set path     [lindex $argv 3]
 
-spawn $path -user $username -hosts "$node1 $node2" -noPromptPassphrase -advanced
+spawn $path -user $username -hosts "$nodes" -noPromptPassphrase -advanced
 
 expect "Do you want to continue and let the script make the above mentioned changes (yes/no)?" { send "yes\n" }
 expect  "password:" { send "$password\n" }

@@ -26,9 +26,9 @@
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
 . /vagrant/config/setup.env
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setting-up shared disks partions"
-echo "-----------------------------------------------------------------"
+. /vagrant/scripts/functions.sh
+
+info "Setting-up shared disks partions" 1
 BOX_DISK_NUM=$1
 PROVIDER=$2
 
@@ -41,7 +41,7 @@ else
   exit 1
 fi
 
-if [[ `hostname` == ${NODE2_HOSTNAME} || (`hostname` == ${NODE1_HOSTNAME} && "${ORESTART}" == "true") ]]
+if [[ `get_node_id` == ${VM_COUNT} || (`get_node_id` == 1 && "${ORESTART}" == "true") ]]
 then
   LETTER=`tr 0123456789 abcdefghij <<< $BOX_DISK_NUM`
   SDISKSNUM=$(ls -l /dev/${DEVICE}[${LETTER}-z]|wc -l)
@@ -53,9 +53,7 @@ then
   done
 fi
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setting-up shared disks udev rules"
-echo "-----------------------------------------------------------------"
+info "Setting-up shared disks udev rules" 1
 LETTER=`tr 0123456789 abcdefghij <<< $BOX_DISK_NUM`
 SDISKSNUM=$(ls -l /dev/${DEVICE}[${LETTER}-z]|wc -l)
 for (( i=1; i<=$SDISKSNUM; i++ ))
@@ -66,10 +64,7 @@ do
   LETTER=$(echo "$LETTER" | tr "0-9a-z" "1-9a-z_")
 done
 
-
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Shared partprobe"
-echo "-----------------------------------------------------------------"
+info "Shared partprobe" 1
 LETTER=`tr 0123456789 abcdefghij <<< $BOX_DISK_NUM`
 SDISKSNUM=$(ls -l /dev/${DEVICE}[${LETTER}-z]|wc -l)
 for (( i=1; i<=$SDISKSNUM; i++ ))

@@ -26,43 +26,32 @@
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
 . /vagrant/config/setup.env
+. /vagrant/scripts/functions.sh
 
 export ORACLE_HOME=${DB_HOME}
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Config database"
-echo "-----------------------------------------------------------------"
+info "Config database" 1
 ${DB_HOME}/bin/srvctl config database -d ${DB_NAME}
 
 if [ $? -ne 0 ]
 then
   if [ "${ORESTART}" == "true" ]
   then
-    echo "-----------------------------------------------------------------------------------"
-    echo -e "${ERROR}`date +%F' '%T`: Oracle Restart on Vagrant is having problems"
-    echo "-----------------------------------------------------------------------------------"
+    error "Oracle Restart on Vagrant is having problems" 1
   else
-    echo "-----------------------------------------------------------------------------------"
-    echo -e "${ERROR}`date +%F' '%T`: Oracle RAC on Vagrant is having problems"
-    echo "-----------------------------------------------------------------------------------"
+    error "Oracle RAC on Vagrant is having problems" 1
   fi
   exit
 fi
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Database Status"
-echo "-----------------------------------------------------------------"
+info "Database Status" 1
 ${DB_HOME}/bin/srvctl status database -d ${DB_NAME}
 
 if [ "${ORESTART}" == "true" ]
 then
-  echo "-----------------------------------------------------------------------------------"
-  echo -e "${SUCCESS}`date +%F' '%T`: Oracle Restart on Vagrant has been created successfully!"
-  echo "-----------------------------------------------------------------------------------"
+  success "Oracle Restart on Vagrant has been created successfully!" 1
 else
-  echo "-----------------------------------------------------------------------------------"
-  echo -e "${SUCCESS}`date +%F' '%T`: Oracle RAC on Vagrant has been created successfully!"
-  echo "-----------------------------------------------------------------------------------"
+  success "Oracle RAC on Vagrant has been created successfully!" 1
 fi
 
 #----------------------------------------------------------

@@ -18,41 +18,40 @@
 #       Ruggero Citton - RAC Pack, Cloud Innovation and Solution Engineering Team
 #
 #    MODIFIED   (MM/DD/YY)
+#    sscott      07/15/21 - Add support for multi-node RAC
 #    rcitton     03/30/20 - VBox libvirt & kvm support
 #    rcitton     11/06/18 - Creation
 #
 #    REVISION
-#    20200330 - $Revision: 2.0.2.1 $
+#    20210715 - $Revision: 2.0.2.2 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
+. /vagrant/scripts/functions.sh
 
 # ---------------------------------------------------------------------
 # Functions
 # ---------------------------------------------------------------------
-
 run_user_scripts() {
   # run user-defined post-setup scripts
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Running user-defined post-setup scripts"
-  echo "-----------------------------------------------------------------"
+  info "Running user-defined post-setup scripts" 1
   for f in /vagrant/userscripts/*
     do
       case "${f,,}" in
         *.sh)
-          echo -e "${INFO}`date +%F' '%T`: running $f"
+          info  "Running $f"
           . "$f"
-          echo -e "${INFO}`date +%F' '%T`: Done running $f"
+          info "Done running $f"
           ;;
         *.sql)
-          echo -e "${INFO}`date +%F' '%T`: running $f"
+          info "Running $f"
           su -l oracle -c "echo 'exit' | sqlplus -s / as sysdba @\"$f\""
-          echo -e "${INFO}`date +%F' '%T`: Done running $f"
+          info "Done running $f"
           ;;
         /vagrant/userscripts/put_custom_scripts_here.txt)
           :
           ;;
         *)
-          echo -e "${INFO}`date +%F' '%T`: ignoring $f"
+          info "Ignoring $f"
           ;;
       esac
     done
@@ -113,7 +112,7 @@ fi
 if [ "${ORESTART}" == "false" ]
 then
   cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
-    oracle.install.crs.config.clusterNodes=${NODE1_FQ_HOSTNAME}:${NODE1_FQ_VIPNAME}:HUB,${NODE2_FQ_HOSTNAME}:${NODE2_FQ_VIPNAME}:HUB \\
+    oracle.install.crs.config.clusterNodes=$(cluster_nodelist "${VM_COUNT}" "${VM_NAME}" "${DOMAIN_NAME}" "${VIP_NETNAME}") \\
     oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:${PUBLIC_SUBNET}:1,${NET_DEVICE2}:${PRIVATE_SUBNET}:5 \\
 EOF
 fi
@@ -222,7 +221,7 @@ fi
 if [ "${ORESTART}" == "false" ]
 then
   cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
-    oracle.install.crs.config.clusterNodes=${NODE1_FQ_HOSTNAME}:${NODE1_FQ_VIPNAME}:HUB,${NODE2_FQ_HOSTNAME}:${NODE2_FQ_VIPNAME}:HUB \\
+    oracle.install.crs.config.clusterNodes=$(cluster_nodelist "${VM_COUNT}" "${VM_NAME}" "${DOMAIN_NAME}" "${VIP_NETNAME}") \\
     oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:${PUBLIC_SUBNET}:1,${NET_DEVICE2}:${PRIVATE_SUBNET}:5 \\
 EOF
 fi
@@ -313,7 +312,7 @@ EOF
 if [ "${ORESTART}" == "false" ]
 then
   cat >> /vagrant/scripts/13_RDBMS_software_installation.sh <<EOF
-        oracle.install.db.CLUSTER_NODES=${NODE1_HOSTNAME},${NODE2_HOSTNAME} \\
+        oracle.install.db.CLUSTER_NODES="$(nodelist "${VM_COUNT}" "${VM_NAME}")" \\
 EOF
 fi
 
@@ -389,23 +388,16 @@ fi
 
 if [ "${DB_TYPE}" == "RAC" ] || [ "${DB_TYPE}" == "RACONE" ]
 then
+  nodes="$(nodelist "${VM_COUNT}" "${VM_NAME}")"
   if [ "${ORESTART}" == "false" ]
   then
     cat >> /vagrant/scripts/14_create_database.sh <<EOF
-  -nodelist ${NODE1_HOSTNAME},${NODE2_HOSTNAME} \\
+  -nodelist ${nodes} \\
 EOF
   else
-    if [ `hostname` == ${NODE1_HOSTNAME} ]
-    then
       cat >> /vagrant/scripts/14_create_database.sh <<EOF
-  -nodelist ${NODE1_HOSTNAME} \\
+  -nodelist $(hostname -s) \\
 EOF
-    elif [ `hostname` == ${NODE2_HOSTNAME} ]
-    then
-      cat >> /vagrant/scripts/14_create_database.sh <<EOF
-  -nodelist ${NODE2_HOSTNAME} \\
-EOF
-    fi
   fi
 fi
 
@@ -420,13 +412,10 @@ EOF
 # ---------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------
-if [[ `hostname` == ${VM2_NAME} || (`hostname` == ${VM1_NAME} && "${ORESTART}" == "true") ]]
+if [[ `get_node_id` -eq ${VM_COUNT} || (`get_node_id` -eq 1 && "${ORESTART}" == "true") ]]
 then
   # build the setup.env
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make the setup.env"
-  echo "-----------------------------------------------------------------"
-
+  info "Make the setup.env" 1
   GI_MAJOR=$(echo "${GI_SOFTWARE_VER}" | cut -c1-2)
   GI_MAINTENANCE=$(echo "${GI_SOFTWARE_VER}" | cut -c3)
   GI_APP=$(echo "${GI_SOFTWARE_VER}" | cut -c4)
@@ -440,19 +429,6 @@ then
   DB_COMP=$(echo "${DB_SOFTWARE_VER}" | cut -c5)
   DB_VERSION=${DB_MAJOR}"."${DB_MAINTENANCE}"."${DB_APP}"."${DB_COMP}
   DB_HOME="/u01/app/oracle/product/"$DB_VERSION"/dbhome_1"
-
-  node1_public_ipoct1=$(echo ${NODE1_PUBLIC_IP} | tr "." " " | awk '{ print $1 }')
-  node1_public_ipoct2=$(echo ${NODE1_PUBLIC_IP} | tr "." " " | awk '{ print $2 }')
-  node1_public_ipoct3=$(echo ${NODE1_PUBLIC_IP} | tr "." " " | awk '{ print $3 }')
-  node1_public_ipoct4=$(echo ${NODE1_PUBLIC_IP} | tr "." " " | awk '{ print $4 }')
-  #
-  node1_private_ipoct1=$(echo ${NODE1_PRIV_IP} | tr "." " " | awk '{ print $1 }')
-  node1_private_ipoct2=$(echo ${NODE1_PRIV_IP} | tr "." " " | awk '{ print $2 }')
-  node1_private_ipoct3=$(echo ${NODE1_PRIV_IP} | tr "." " " | awk '{ print $3 }')
-  node1_private_ipoct4=$(echo ${NODE1_PRIV_IP} | tr "." " " | awk '{ print $4 }')
-
-  PUBLIC_SUBNET="$node1_public_ipoct1.$node1_public_ipoct2.$node1_public_ipoct3.0"
-  PRIVATE_SUBNET="$node1_private_ipoct1.$node1_private_ipoct2.$node1_private_ipoct3.0"
 
   NET_DEVICE1=`ip a | grep "3: " | awk '{print $2}'`
   NET_DEVICE1=${NET_DEVICE1:0:-1}
@@ -486,15 +462,11 @@ export ORESTART=$ORESTART
 #----------------------------------------------------------
 export PUBLIC_SUBNET=$PUBLIC_SUBNET
 export PRIVATE_SUBNET=$PRIVATE_SUBNET
-#
-export NODE1_PUBLIC_IP=$NODE1_PUBLIC_IP
-export NODE2_PUBLIC_IP=$NODE2_PUBLIC_IP
-#
-export NODE1_PRIV_IP=$NODE1_PRIV_IP
-export NODE2_PRIV_IP=$NODE2_PRIV_IP
-#
-export NODE1_VIP_IP=$NODE1_VIP_IP
-export NODE2_VIP_IP=$NODE2_VIP_IP
+export VIP_SUBNET=$VIP_SUBNET
+export VM_COUNT=$VM_COUNT
+export VM_NAME=$VM_NAME
+export PRIVATE_NETNAME=$PRIVATE_NETNAME
+export VIP_NETNAME=$VIP_NETNAME
 #
 export SCAN_IP1=$SCAN_IP1
 export SCAN_IP2=$SCAN_IP2
@@ -502,21 +474,6 @@ export SCAN_IP3=$SCAN_IP3
 #----------------------------------------------------------
 #----------------------------------------------------------
 export DOMAIN_NAME=${DOMAIN}
-
-export NODE1_HOSTNAME=${VM1_NAME}
-export NODE2_HOSTNAME=${VM2_NAME}
-export NODE1_FQ_HOSTNAME=\${NODE1_HOSTNAME}.\${DOMAIN_NAME}
-export NODE2_FQ_HOSTNAME=\${NODE2_HOSTNAME}.\${DOMAIN_NAME}
-
-export NODE1_VIPNAME=\${NODE1_HOSTNAME}-vip
-export NODE2_VIPNAME=\${NODE2_HOSTNAME}-vip
-export NODE1_FQ_VIPNAME=\${NODE1_VIPNAME}.\${DOMAIN_NAME}
-export NODE2_FQ_VIPNAME=\${NODE2_VIPNAME}.\${DOMAIN_NAME}
-
-export NODE1_PRIVNAME=\${NODE1_HOSTNAME}-priv
-export NODE2_PRIVNAME=\${NODE2_HOSTNAME}-priv
-export NODE1_FQ_PRIVNAME=\${NODE1_PRIVNAME}.\${DOMAIN_NAME}
-export NODE2_FQ_PRIVNAME=\${NODE2_PRIVNAME}.\${DOMAIN_NAME}
 #----------------------------------------------------------
 #----------------------------------------------------------
 export CLUSTER_NAME=${PREFIX_NAME}-c
@@ -543,69 +500,59 @@ export NET_DEVICE1=${NET_DEVICE1}
 export NET_DEVICE2=${NET_DEVICE2}
 #----------------------------------------------------------
 #----------------------------------------------------------
-export INFO='\033[0;34mINFO: \033[0m'
-export ERROR='\033[1;31mERROR: \033[0m'
-export SUCCESS='\033[1;32mSUCCESS: \033[0m'
-#----------------------------------------------------------
-#----------------------------------------------------------
 EOL
 fi
 
-
 # Setup the env
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup the environment variables"
-echo "-----------------------------------------------------------------"
+info "Setup the environment variables" 1
 . /vagrant/config/setup.env
 
 
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Checking parameters"
-echo "-----------------------------------------------------------------"
+info "Checking parameters" 1
 if [ "$P1_RATIO" -eq "$P1_RATIO" ] 2>/dev/null
 then
   echo "Partition ratio is set to $P1_RATIO" >/dev/null
 else
-  echo -e "${ERROR}`date +%F' '%T`: Partition ratio option must be an integer, exiting...";
+  error "Partition ratio option must be an integer, exiting..."
   exit 1
 fi
 
 if [ $P1_RATIO -lt 10 ] && [ $P1_RATIO -gt 80 ] 
 then
-  echo -e "${ERROR}`date +%F' '%T`: Partition ratio should be a value between 10 and 80, exiting...";
+  error "Partition ratio should be a value between 10 and 80, exiting..."
   exit 1
 fi 
 
 if [ "${ASM_LIB_TYPE}" != "ASMLIB" ] && [ "${ASM_LIB_TYPE}" != "ASMFD" ]
 then
-  echo -e "${ERROR}`date +%F' '%T`: Parameter 'asm_lib_type' must be 'ASMLIB' or 'ASMFD', exiting...";
+  error "Parameter 'asm_lib_type' must be 'ASMLIB' or 'ASMFD', exiting..."
   exit 1
 fi
 
 if [ "${ORESTART}" != "true" ] && [ "${ORESTART}" != "false" ]
 then
-  echo -e "${ERROR}`date +%F' '%T`: Parameter 'orestart' must be 'true' or 'false', exiting...";
+  error "Parameter 'orestart' must be 'true' or 'false', exiting..."
   exit 1
 fi
 
 if [ "${NOMGMTDB}" != "true" ] && [ "${NOMGMTDB}" != "false" ]
 then
-  echo -e "${ERROR}`date +%F' '%T`: Parameter 'nomgmtdb' must be 'true' or 'false', exiting...";
+  error "Parameter 'nomgmtdb' must be 'true' or 'false', exiting..."
   exit 1
 fi
 
 if [ "${DB_TYPE}" != "SI" ] && [ "${DB_TYPE}" != "RACONE" ] && [ "${DB_TYPE}" != "RAC" ]
 then
-  echo -e "${ERROR}`date +%F' '%T`: Parameter 'db_type' must be 'SI' or 'RACONE' or 'RAC', exiting...";
+  error "Parameter 'db_type' must be 'SI' or 'RACONE' or 'RAC', exiting..."
   exit 1
 fi
 
 if [[ "${ORESTART}" == "true" && ("${DB_TYPE}" == "RACONE" || "${DB_TYPE}" == "RAC" ) ]]
 then
-  echo -e "${ERROR}`date +%F' '%T`: Oracle Restart supports 'SI' only, exiting...";
+  error "Oracle Restart supports 'SI' only, exiting..."
   exit 1
 fi
 
@@ -613,16 +560,12 @@ fi
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Fix locale warnings"
-echo "-----------------------------------------------------------------"
+info "Fix locale warnings" 1
 echo LANG=en_US.utf-8 >> /etc/environment
 echo LC_ALL=en_US.utf-8 >> /etc/environment
 
 # set system time zone
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Set system time zone"
-echo "-----------------------------------------------------------------"
+info "Set system time zone" 1
 sudo timedatectl set-timezone $SYSTEM_TIMEZONE
 
 #--------------------------------------------------------------------
@@ -647,51 +590,39 @@ sh /vagrant/scripts/05_setup_shared_disks.sh $BOX_DISK_NUM $PROVIDER
 sh /vagrant/scripts/06_setup_users.sh
 
 # Setup users password
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Set root, oracle and grid password"
-echo "-----------------------------------------------------------------"
+info "Set root, oracle and grid password" 1
 echo ${ROOT_PASSWORD}   | passwd --stdin root
 echo ${GRID_PASSWORD}   | passwd --stdin grid
 echo ${ORACLE_PASSWORD} | passwd --stdin oracle
 
-
 # Actions on node1 only
-if [ `hostname` == ${VM1_NAME} ] && [ "${ORESTART}" == "false" ]
+if [ `get_node_id` -eq 1 ] && [ "${ORESTART}" == "false" ]
 then
-  # unzip grid software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Unzip grid software"
-  echo "-----------------------------------------------------------------"
+  # unzip grid software
+  info "Unzip grid software" 1
   cd ${GI_HOME}
   unzip -oq /vagrant/ORCL_software/${GI_SOFTWARE}
   chown -R grid:oinstall ${GI_HOME}
 
   # setup ssh equivalence (node1 only)
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Setup user equivalence"
-  echo "-----------------------------------------------------------------"
-  expect /vagrant/scripts/07_setup_user_equ.expect grid   ${GRID_PASSWORD}   ${NODE1_HOSTNAME} ${NODE2_HOSTNAME} ${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh
-  expect /vagrant/scripts/07_setup_user_equ.expect oracle ${ORACLE_PASSWORD} ${NODE1_HOSTNAME} ${NODE2_HOSTNAME} ${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh
+  info "Setup user equivalence" 1
+  node_list="$(nodelist $VM_COUNT $VM_NAME | sed s'/,/ /g')"
+  expect /vagrant/scripts/07_setup_user_equ.expect grid   "${GRID_PASSWORD}"   "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
+  expect /vagrant/scripts/07_setup_user_equ.expect oracle "${ORACLE_PASSWORD}" "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
 
   # Install cvuqdisk package
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Install cvuqdisk package"
-  echo "-----------------------------------------------------------------"
+  info "Install cvuqdisk package" 1
   yum install -y ${GI_HOME}/cv/rpm/cvuqdisk*.rpm
 elif [ "${ORESTART}" == "true" ]
 then
   # unzip grid software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Unzip grid software"
-  echo "-----------------------------------------------------------------"
+  info "Unzip grid software" 1
   cd ${GI_HOME}
   unzip -oq /vagrant/ORCL_software/${GI_SOFTWARE}
   chown -R grid:oinstall ${GI_HOME}
   
   # Install cvuqdisk package
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Install cvuqdisk package"
-  echo "-----------------------------------------------------------------"
+  info "Install cvuqdisk package" 1
   yum install -y ${GI_HOME}/cv/rpm/cvuqdisk*.rpm
 fi
 
@@ -700,96 +631,72 @@ fi
 if [ "${ASM_LIB_TYPE}" == "ASMFD" ]
 then
   # Setting-up asmfd disks label
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: ASMFD disks label setup"
-  echo "-----------------------------------------------------------------"
+  info "ASMFD disks label setup" 1
   sh /vagrant/scripts/08_asmfd_label_disk.sh $BOX_DISK_NUM $PROVIDER
 else
   # Setting-up asmfd disks label
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: ASMLib disks label setup"
-  echo "-----------------------------------------------------------------"
+  info "ASMLib disks label setup" 1
   sh /vagrant/scripts/08_asmlib_label_disk.sh $BOX_DISK_NUM $PROVIDER
 fi
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
 
-if [ `hostname` == ${VM1_NAME} ] && [ "${ORESTART}" == "false" ]
+if [ `get_node_id` -eq 1 ] && [ "${ORESTART}" == "false" ]
 then
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make GI install command"
-  echo "-----------------------------------------------------------------"
+  info "Make GI install command" 1
   make_09_gi_installation ;
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure installation as 'RAC'"
-  echo -e "${INFO}`date +%F' '%T`: - ASM library   : ${ASM_LIB_TYPE}"
-  echo -e "${INFO}`date +%F' '%T`: - without MGMTDB: ${NOMGMTDB}"
-  echo "-----------------------------------------------------------------"
-
+  info "Grid Infrastructure installation as 'RAC'" 0
+  info "- ASM library   : ${ASM_LIB_TYPE}"
+  info "- without MGMTDB: ${NOMGMTDB}" 2
   su - grid -c 'sh /vagrant/scripts/09_gi_installation.sh'
 
   #-------------------------------------------------------
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Set root user equivalence"
-  echo "-----------------------------------------------------------------"
-  expect /vagrant/scripts/07_setup_user_equ.expect root ${ROOT_PASSWORD} ${NODE1_HOSTNAME} ${NODE2_HOSTNAME} ${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh
+  info "Set root user equivalence" 1
+  node_list="$(nodelist $VM_COUNT $VM_NAME | sed s'/,/ /g')"
+  expect /vagrant/scripts/07_setup_user_equ.expect root "${ROOT_PASSWORD}" "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure setup"
-  echo "-----------------------------------------------------------------"
+  info "Grid infrastructure setup" 1
   sh /vagrant/scripts/10_gi_setup.sh
   #-------------------------------------------------------
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make GI config command"
-  echo "-----------------------------------------------------------------"
+  info "Make GI config command" 1
   make_11_gi_config ;
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure configuration as 'RAC'"
-  echo -e "${INFO}`date +%F' '%T`: - ASM library   : ${ASM_LIB_TYPE}"
-  echo -e "${INFO}`date +%F' '%T`: - without MGMTDB: ${NOMGMTDB}"
-  echo "-----------------------------------------------------------------"
+  info "Grid Infrastructure configuration as 'RAC'" 0
+  info "- ASM library   : ${ASM_LIB_TYPE}"
+  info "- without MGMTDB: ${NOMGMTDB}" 2
   su - grid -c 'sh /vagrant/scripts/11_gi_config.sh'
   #-------------------------------------------------------
 
   if [ "${ASM_LIB_TYPE}" == "ASMFD" ]
   then
     # Make RECO DG using ASMFD
-    echo "-----------------------------------------------------------------"
-    echo -e "${INFO}`date +%F' '%T`: Make RECO DG using ASMFD"
-    echo "-----------------------------------------------------------------"
+    info "Make RECO DG using ASMFD" 1
     su - grid -c 'sh /vagrant/scripts/12_Make_ASMFD_RECODG.sh'
   else
     # Make RECO DG using ASMLib
-    echo "-----------------------------------------------------------------"
-    echo -e "${INFO}`date +%F' '%T`: Make RECO DG using ASMLib"
-    echo "-----------------------------------------------------------------"
+    info "Make RECO DG using ASMLib" 1
     su - grid -c 'sh /vagrant/scripts/12_Make_ASMLib_RECODG.sh'
   fi
 
   # unzip rdbms software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Unzip RDBMS software"
-  echo "-----------------------------------------------------------------"
+  info "Unzip RDBMS software" 1
   cd ${DB_HOME}
   unzip -oq /vagrant/ORCL_software/${DB_SOFTWARE}
   chown -R oracle:oinstall ${DB_HOME}
 
   # Make 13_RDBMS_software_installation.sh
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make RDBMS software install command"
-  echo "-----------------------------------------------------------------"
+  info "Make RDBMS software install command" 1
   make_13_RDBMS_software_installation;
 
   # install rdbms software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: RDBMS software installation"
-  echo "-----------------------------------------------------------------"
+  info "RDBMS software installation" 1
   su - oracle -c 'sh /vagrant/scripts/13_RDBMS_software_installation.sh'
   sh ${DB_HOME}/root.sh
-  ssh root@${NODE2_HOSTNAME} sh ${DB_HOME}/root.sh
+   for i in $(seq 1 $VM_COUNT)
+    do ssh root@${VM_NAME}${i} sh ${DB_HOME}root.sh 
+  done
 
   if [ "${DB_MAJOR}" == "12" ]
   then
@@ -797,52 +704,36 @@ then
   fi
 
   # Make 14_create_database.sh
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make create database command"
-  echo "-----------------------------------------------------------------"
+  info "Make create database command" 1
   make_14_create_database;
 
   # create database 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Create database"
-  echo "-----------------------------------------------------------------"
+  info "Create database" 1
   su - oracle -c 'sh /vagrant/scripts/14_create_database.sh'
 
   # Check database 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Check database"
-  echo "-----------------------------------------------------------------"
+  info "Check database" 1
   su - oracle -c 'sh /vagrant/scripts/15_Check_database.sh'
 
 elif [ "${ORESTART}" == "true" ]
 then
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Making GI install command"
-  echo "-----------------------------------------------------------------"
+  info "Making GI install command" 1
   make_09_gi_installation ;
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure installation as 'ORestart'"
-  echo -e "${INFO}`date +%F' '%T`: - ASM library   : ${ASM_LIB_TYPE}"
-  echo -e "${INFO}`date +%F' '%T`: - without MGMTDB: ${NOMGMTDB}"
-  echo "-----------------------------------------------------------------"
+  info "Grid Infrastructure installation as 'ORestart'" 0
+  info "- ASM library   : ${ASM_LIB_TYPE}"
+  info "- without MGMTDB: ${NOMGMTDB}" 2
   su - grid -c 'sh /vagrant/scripts/09_gi_installation.sh'
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure setup"
-  echo "-----------------------------------------------------------------"
+  info "Grid Infrastructure setup" 1
   sh /vagrant/scripts/10_gi_setup.sh
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make GI config command"
-  echo "-----------------------------------------------------------------"
+  info "Make GI config command" 1
   make_11_gi_config ;
 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Grid Infrastructure configuration as 'ORestart'"
-  echo -e "${INFO}`date +%F' '%T`: - ASM library   : ${ASM_LIB_TYPE}"
-  echo -e "${INFO}`date +%F' '%T`: - without MGMTDB: ${NOMGMTDB}"
-  echo "-----------------------------------------------------------------"
+  info "Grid Infrastructure configuration as 'ORestart'" 0
+  info "- ASM library   : ${ASM_LIB_TYPE}"
+  info "- without MGMTDB: ${NOMGMTDB}" 2
   touch /etc/oratab
   chown grid:oinstall /etc/oratab
   su - grid -c 'sh /vagrant/scripts/11_gi_config.sh'
@@ -851,36 +742,26 @@ then
   if [ "${ASM_LIB_TYPE}" == "ASMFD" ]
   then
     # Make RECO DG using ASMFD
-    echo "-----------------------------------------------------------------"
-    echo -e "${INFO}`date +%F' '%T`: Make RECO DG using ASMFD"
-    echo "-----------------------------------------------------------------"
+    info "Make RECO DG using ASMFD" 1
     su - grid -c 'sh /vagrant/scripts/12_Make_ASMFD_RECODG.sh'
   else
     # Make RECO DG using ASMLib
-    echo "-----------------------------------------------------------------"
-    echo -e "${INFO}`date +%F' '%T`: Make RECO DG using ASMLib"
-    echo "-----------------------------------------------------------------"
+    info "Make RECO DG using ASMLib" 1
     su - grid -c 'sh /vagrant/scripts/12_Make_ASMLib_RECODG.sh'
   fi
 
   # unzip rdbms software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Unzip RDBMS software"
-  echo "-----------------------------------------------------------------"
+  info "Unzip RDBMS software" 1
   cd ${DB_HOME}
   unzip -oq /vagrant/ORCL_software/${DB_SOFTWARE}
   chown -R oracle:oinstall ${DB_HOME}
 
   # Make 13_RDBMS_software_installation.sh
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make RDBMS software installation command"
-  echo "-----------------------------------------------------------------"
+  info "Make RDBMS software installation command" 1
   make_13_RDBMS_software_installation;
 
   # install rdbms software 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: RDBMS software installation"
-  echo "-----------------------------------------------------------------"
+  info "RDBMS software installation" 1
   su - oracle -c 'sh /vagrant/scripts/13_RDBMS_software_installation.sh'
   sh ${DB_HOME}/root.sh
 
@@ -890,21 +771,15 @@ then
   fi
 
   # Make 14_create_database.sh
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Make create database command"
-  echo "-----------------------------------------------------------------"
+  info "Make create database command" 1
   make_14_create_database;
 
   # create database 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Create database"
-  echo "-----------------------------------------------------------------"
+  info "Create database" 1
   su - oracle -c 'sh /vagrant/scripts/14_create_database.sh'
 
   # Check database 
-  echo "-----------------------------------------------------------------"
-  echo -e "${INFO}`date +%F' '%T`: Check database"
-  echo "-----------------------------------------------------------------"
+  info "Check database" 1
   su - oracle -c 'sh /vagrant/scripts/15_Check_database.sh'
 fi
 

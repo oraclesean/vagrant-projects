@@ -8,7 +8,7 @@
 #      vagrantfile
 #
 #    DESCRIPTION
-#      Creates two nodes Oracle RAC (Real Application Cluster) Vagrant virtual machines for KVM/libVirt & VirtualBox
+#      Creates Oracle RAC (Real Application Cluster) Vagrant virtual machines for KVM/libVirt & VirtualBox
 #
 #    NOTES
 #      DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
@@ -17,12 +17,13 @@
 #      Ruggero Citton - RAC Pack, Cloud Innovation and Solution Engineering Team
 #
 #    MODIFIED   (MM/DD/YY)
+#    sscott      07/15/21 - Add support for multi-node RAC
 #    rcitton     09/23/20 - Latest OL7 (7.8.142) box for VirtualBox  is having only one disk
 #    rcitton     03/30/20 - VBox libvirt & kvm support
 #    rcitton     03/24/20 - Creation
 #
 #    REVISION
-#    20200923 - $Revision: 2.0.2.3 $
+#    20210715 - $Revision: 2.0.2.4 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
 
@@ -84,30 +85,27 @@ puts ""
 params = YAML.load_file 'config/vagrant.yml'
 #
 var_provider_name   = params['env']['provider']
-#
+var_vm_name         = params['shared']['vm_name']
+var_vm_count        = params['shared']['vm_count']
+var_mem_size        = params['shared']['mem_size']
+var_cpus            = params['shared']['cpus']
 var_prefix_name     = params['shared']['prefix_name']
-var_domain          = params['shared']['domain']
 #
 var_domain          = params['shared']['domain']
+var_public_subnet   = params['shared']['public_subnet']
+var_public_lan      = (var_public_subnet.rpartition(".")[0])
+var_public_octet    = (var_public_subnet.rpartition(".")[-1])
+var_private_subnet  = params['shared']['private_subnet']
+var_private_lan     = (var_private_subnet.rpartition(".")[0])
+var_private_octet   = (var_private_subnet.rpartition(".")[-1])
+var_vip_subnet      = params['shared']['vip_subnet']
+var_private_netname = params['shared']['private_netname']
+var_vip_netname     = params['shared']['vip_netname']
 var_scan_ip1        = params['shared']['scan_ip1']
 var_scan_ip2        = params['shared']['scan_ip2']
 var_scan_ip3        = params['shared']['scan_ip3']
 #
-var_vm1_name        = params['node1']['vm_name']
-var_vm1_mem_size    = params['node1']['mem_size']
-var_vm1_cpus        = params['node1']['cpus']
-var_vm1_public_ip   = params['node1']['public_ip']
-var_vm1_vip_ip      = params['node1']['vip_ip']
-var_vm1_private_ip  = params['node1']['private_ip']
-var_vm1_storage     = params['node1']['storage_pool_name']
-#
-var_vm2_name        = params['node2']['vm_name']
-var_vm2_mem_size    = params['node2']['mem_size']
-var_vm2_cpus        = params['node2']['cpus']
-var_vm2_public_ip   = params['node2']['public_ip']
-var_vm2_vip_ip      = params['node2']['vip_ip']
-var_vm2_private_ip  = params['node2']['private_ip']
-var_vm2_storage     = params['node2']['storage_pool_name']
+var_vm_storage      = params['shared']['storage_pool_name']
 #
 var_asm_storage     = params['shared']['storage_pool_name']
 var_asm_disk_num    = params['shared']['asm_disk_num']
@@ -166,40 +164,31 @@ end
 
 ## Storage Setup
 if var_provider_name == 'libvirt'
-  var_vm1_storage     = params['node1']['storage_pool_name']
-  var_vm2_storage     = params['node2']['storage_pool_name']
+  var_vm_storage      = params['shared']['storage_pool_name']
   var_asm_storage     = params['shared']['storage_pool_name']
 
-  if var_vm1_storage.to_s.empty?
-    var_vm1_storage = "default"
-  end
-  if var_vm2_storage.to_s.empty?
-    var_vm2_storage = "default"
+  if var_vm_storage.to_s.empty?
+    var_vm_storage = "default"
   end
   if var_asm_storage.to_s.empty?
     var_asm_storage = "default"
   end
-end
-if var_provider_name == 'virtualbox'
+else
   var_group           = "/" + var_prefix_name
-  var_vm1_u01_disk    = params['node1']['u01_disk']
-  var_vm2_u01_disk    = params['node2']['u01_disk']
   var_non_rotational  = params['shared']['non_rotational']
-  var_asm_disk_path   = params['shared']['asm_disk_path']
+  var_asm_storage     = params['shared']['asm_disk_path']
 
   if ( (var_non_rotational != 'on') and (var_non_rotational != 'off') )
     puts 'ERROR: non_rotational option can be on or off'
     exit
   end
 
-  if var_asm_disk_path.to_s.empty?
-    var_asm_disk_path = "./"
+  if var_asm_storage.to_s.empty?
+    var_asm_storage = "./"
   else
-    var_asm_disk_path = var_asm_disk_path + "/"
+    var_asm_storage = var_asm_storage + "/"
   end
 end
-
-
 
 # -----------------------------------------------------------------
 # Variables check
@@ -210,12 +199,8 @@ if !var_prefix_name.match? /\A[0-9a-zA-Z-]{1,14}\z/
   exit
 end
 
-if var_vm1_mem_size.to_i < 6144
-  puts 'ERROR: vm1_mem_size option can not be less then 6 Gb'
-  exit
-end
-if var_vm2_mem_size.to_i < 6144
-  puts 'ERROR: vm2_mem_size option can not be less then 6 Gb'
+if var_mem_size.to_i < 6144
+  puts 'ERROR: vm_mem_size option can not be less then 6 Gb'
   exit
 end
 
@@ -227,18 +212,33 @@ if ( (var_orestart != true) and (var_orestart != false) )
   puts 'ERROR: orestart option can be true or false'
   exit
 end
+if ! var_vm_count.between?(1, 8)
+  puts 'ERROR: vm_count must be between 1 and 8'
+  exit
+end
 if ( (var_cdb != true) and (var_cdb != false) )
   puts 'ERROR: cdb option can be true or false'
   exit
 end
 
 if ( (var_orestart == true) and (var_db_type != 'SI'))
-  puts 'ERROR: orestart option supports ony Single Instance database'
+  puts 'ERROR: orestart option supports only Single Instance database'
   exit
 end
-
+if ( (var_orestart == true) and (var_vm_count > 1))
+  puts 'ERROR: orestart option only supports vm_count of 1'
+  exit
+end
 if ( (var_db_type != 'RAC') and (var_db_type != 'RACONE') and (var_db_type != 'SI'))
   puts 'ERROR: db_type option can be RAC, RACONE or SI'
+  exit
+end
+if ( (var_db_type == 'RAC') and (var_vm_count < 2))
+  puts 'ERROR: RAC db_type requires vm_count > 1'
+  exit
+end
+if ( (var_db_type == 'RACONE') and (var_vm_count > 1))
+  puts 'ERROR: RACONE db_type requires vm_count = 1'
   exit
 end
 if ( (var_asm_lib_type != 'ASMLIB') and (var_asm_lib_type != 'ASMFD') )
@@ -265,44 +265,28 @@ class String
   end
 end
 
-if ! var_vm1_public_ip.is_ip?
-  puts 'ERROR: public_ip for node1 is not a valid IP address'
+if ! var_public_subnet.is_ip?
+  puts 'ERROR: public_subnet is not a valid IP address'
   exit
 end
-if ! var_vm1_private_ip.is_ip?
-  puts 'ERROR: private_ip for node1 is not a valid IP address'
+if ! var_private_subnet.is_ip?
+  puts 'ERROR: private_subnet is not a valid IP address'
   exit
 end
-if ! var_vm1_vip_ip.is_ip?
-  puts 'ERROR: vip_ip for node1 is not a valid IP address'
+if ! var_vip_subnet.is_ip?
+  puts 'ERROR: vip_subnet is not a valid IP address'
   exit
 end
-
-if (var_orestart == false)
-  if ! var_vm2_public_ip.is_ip?
-    puts 'ERROR: public_ip for node2 is not a valid IP address'
-    exit
-  end
-  if ! var_vm2_private_ip.is_ip?
-    puts 'ERROR: private_ip for node2 is not a valid IP address'
-    exit
-  end
-  if ! var_vm2_vip_ip.is_ip?
-    puts 'ERROR: vip_ip for node1 is not a valid IP address'
-    exit
-  end
-end
-
 if ! var_scan_ip1.is_ip?
-  puts 'ERROR: scan_ip1 for node2 is not a valid IP address'
+  puts 'ERROR: scan_ip1 for is not a valid IP address'
   exit
 end
 if ! var_scan_ip2.is_ip?
-  puts 'ERROR: scan_ip3 for node1 is not a valid IP address'
+  puts 'ERROR: scan_ip3 for is not a valid IP address'
   exit
 end
 if ! var_scan_ip3.is_ip?
-  puts 'ERROR: scan_ip3 for node2 is not a valid IP address'
+  puts 'ERROR: scan_ip3 for is not a valid IP address'
   exit
 end
 
@@ -419,182 +403,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   end
 
   config.ssh.forward_x11 = true
-
-  if var_provider_name == 'libvirt'
-    if var_orestart == false
-      # vm node2
-      config.vm.define :node2 do |node2|
-        node2.vm.hostname = var_vm2_name
-        node2.vm.network "private_network", :libvirt__network_name => "vgt-hostonly_network", ip: var_vm2_public_ip
-        node2.vm.network "private_network", :libvirt__network_name => "vgt-private_network",  ip: var_vm2_private_ip
-        node2.vm.provider :libvirt do |libvirt|
-          libvirt.default_prefix = var_prefix_name
-          libvirt.driver = "kvm"
-          libvirt.memory = var_vm2_mem_size
-          libvirt.cpus   = var_vm2_cpus
-
-          libvirt.storage_pool_name = var_vm2_storage
-          disk_num = 0
-          while disk_num < box_disks_num do
-            libvirt.storage :file,
-              :size => '100G'      # defaults to 10G if unspecified!
-            disk_num += 1
-          end
-
-          # Making asm disks
-          libvirt.storage_pool_name = var_asm_storage
-          disk_num = disk_num.to_i + 1
-          num = 0
-          while num < var_asm_disk_num do
-            asm_disk_size = var_asm_disk_size.to_s + "G"
-              libvirt.storage :file,
-                :path => var_prefix_name + '_asm_' + num.to_s,
-                :size => asm_disk_size,  # defaults to 10G if unspecified!
-                :cache => 'none',
-                :type => 'raw',               # defaults to 'qcow2' if unspecified!
-                :shareable => 'true'
-            disk_num += 1
-            num += 1
-          end
-        end
-      end
-    end
-
-    # vm node1
-    config.vm.define :node1 do |node1|
-      node1.vm.hostname = var_vm1_name
-      node1.vm.network "private_network", :libvirt__network_name => "vgt-hostonly_network", ip: var_vm1_public_ip
-      node1.vm.network "private_network", :libvirt__network_name => "vgt-private_network",  ip: var_vm1_private_ip
-      node1.vm.provider :libvirt do |libvirt|
-        libvirt.default_prefix = var_prefix_name
-        libvirt.driver = "kvm"
-        libvirt.memory = var_vm1_mem_size
-        libvirt.cpus   = var_vm1_cpus
-
-        libvirt.storage_pool_name = var_vm1_storage
-        disk_num = 0
-        while disk_num < box_disks_num do
-          libvirt.storage :file,
-            :size => '100G'      # defaults to 10G if unspecified!
-          disk_num += 1
-        end
-
-        # Making asm disks
-        libvirt.storage_pool_name = var_asm_storage
-        disk_num = disk_num.to_i + 1
-        num = 0
-        while num < var_asm_disk_num do
-          asm_disk_size = var_asm_disk_size.to_s + "G"
-            libvirt.storage :file,
-              :path => var_prefix_name + '_asm_' + num.to_s,
-              :size => asm_disk_size,  # defaults to 10G if unspecified!
-              :cache => 'none',
-              :type => 'raw',                # defaults to 'qcow2' if unspecified!
-              :allow_existing => 'true',
-              :shareable => 'true'
-          disk_num += 1
-          num += 1
-        end
-      end
-    end
-  end
-
-  if var_provider_name == 'virtualbox'
-    if var_orestart == false
-      # vm node2
-      config.vm.define :node2 do |node2|
-        node2.vm.hostname = var_vm2_name
-        node2.vm.network :private_network, ip: var_vm2_public_ip, virtualbox__hostonly: "vboxnet0"
-        node2.vm.network :private_network, ip: var_vm2_private_ip, virtualbox__intnet: "private"
-        node2.vm.provider :virtualbox do |vb|
-          vb.name   = var_prefix_name + "-" + var_vm2_name
-          vb.memory = var_vm2_mem_size
-          vb.cpus   = var_vm2_cpus
-          vb.customize ["modifyvm", :id, "--groups", var_group] unless var_group.nil?
-
-          # Attach default guest vdisks
-          disk_num = 0
-          while disk_num < box_disks_num do
-            vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--nonrotational', var_non_rotational]
-            disk_num += 1
-          end
-
-          # Make u01 vdisk
-          unless File.exist?(var_vm2_u01_disk)
-            vb.customize ['createhd', '--filename', var_vm2_u01_disk, '--size', 100 * 1024]
-          end
-          vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', var_vm2_u01_disk, '--nonrotational', var_non_rotational]
-
-          # Making asm disks
-          disk_num = disk_num.to_i + 1
-          num = 0
-          while num < var_asm_disk_num do
-            asm_disk = var_asm_disk_path + "asm_disk" + num.to_s + ".vdi"
-            # Making oradata disks
-            unless File.exist?(asm_disk)
-              vb.customize ['createhd', '--filename', asm_disk, '--size', var_asm_disk_size * 1024, '--format', 'VDI', '--variant', 'Fixed']
-            end
-            vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', asm_disk, '--mtype', 'shareable', '--nonrotational', var_non_rotational]
-            vb.customize ['modifymedium', 'disk', asm_disk, '--type', 'shareable']
-            disk_num += 1
-            num += 1
-          end
-        end
-      end
-    end
-
-    # vm node1
-    config.vm.define :node1 do |node1|
-      node1.vm.hostname = var_vm1_name
-      node1.vm.network :private_network, ip: var_vm1_public_ip, virtualbox__hostonly: "vboxnet0"
-      node1.vm.network :private_network, ip: var_vm1_private_ip, virtualbox__intnet: "private"
-      node1.vm.provider :virtualbox do |vb|
-        vb.name   = var_prefix_name + "-" + var_vm1_name
-        vb.memory = var_vm1_mem_size
-        vb.cpus   = var_vm1_cpus
-        vb.customize ["modifyvm", :id, "--groups", var_group] unless var_group.nil?
-
-        # Attach default guest vdisks
-        disk_num = 0
-        while disk_num < box_disks_num do
-          vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--nonrotational', var_non_rotational]
-          disk_num += 1
-        end
-
-        # Make u01 vdisk
-        unless File.exist?(var_vm1_u01_disk)
-          vb.customize ['createhd', '--filename', var_vm1_u01_disk, '--size', 100 * 1024]
-        end
-        vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', var_vm1_u01_disk, '--nonrotational', var_non_rotational]
-        disk_num = disk_num.to_i + 1
-
-        if var_orestart == false
-          num = 0
-          while num < var_asm_disk_num do
-            asm_disk = var_asm_disk_path + "asm_disk" + num.to_s + ".vdi"
-            vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', asm_disk, '--mtype', 'shareable', '--nonrotational', var_non_rotational]
-            disk_num += 1
-            num += 1
-          end
-        else
-          # Making asm disks
-          num = 0
-          while num < var_asm_disk_num do
-            asm_disk = var_asm_disk_path + "asm_disk" + num.to_s + ".vdi"
-            # Making oradata disks
-            unless File.exist?(asm_disk)
-              vb.customize ['createhd', '--filename', asm_disk, '--size', var_asm_disk_size * 1024, '--format', 'VDI', '--variant', 'Fixed']
-            end
-            vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', asm_disk, '--mtype', 'shareable', '--nonrotational', var_non_rotational]
-            vb.customize ['modifymedium', 'disk', asm_disk, '--type', 'shareable']
-            disk_num += 1
-            num += 1
-          end
-        end
-      end
-    end
-  end
-
   # Enable ssh password authentication
   config.vm.provision "shell", inline: <<-SHELL
     sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' /etc/ssh/sshd_config
@@ -612,14 +420,15 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       "DB_SOFTWARE"        => var_db_software,
       "DB_SOFTWARE_VER"    => var_db_software_ver,
       "ORA_LANGUAGES"      => var_ora_languages,
-      "VM1_NAME"           => var_vm1_name,
-      "VM2_NAME"           => var_vm2_name,
-      "NODE1_PUBLIC_IP"    => var_vm1_public_ip,
-      "NODE2_PUBLIC_IP"    => var_vm2_public_ip,
-      "NODE1_VIP_IP"       => var_vm1_vip_ip,
-      "NODE2_VIP_IP"       => var_vm2_vip_ip,
-      "NODE1_PRIV_IP"      => var_vm1_private_ip,
-      "NODE2_PRIV_IP"      => var_vm2_private_ip,
+      "VM_NAME"            => var_vm_name,
+      "VM_COUNT"           => var_vm_count,
+      "CPUS"               => var_cpus,
+      "MEM_SIZE"           => var_mem_size,
+      "PUBLIC_SUBNET"      => var_public_subnet,
+      "PRIVATE_SUBNET"     => var_private_subnet,
+      "PRIVATE_NETNAME"    => var_private_netname,
+      "VIP_SUBNET"         => var_vip_subnet,
+      "VIP_NETNAME"        => var_vip_netname,
       "SCAN_IP1"           => var_scan_ip1,
       "SCAN_IP2"           => var_scan_ip2,
       "SCAN_IP3"           => var_scan_ip3,
@@ -638,6 +447,110 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       "DB_TYPE"            => var_db_type,
       "CDB"                => var_cdb
   }
+
+  (1..var_vm_count).each do |i|
+    i = var_vm_count+1-i # Work backwards through the nodes
+    config.vm.define "node#{i}" do |node|
+      node.vm.hostname = var_vm_name + "#{i}"
+      if i == var_vm_count
+        doasm = true # Only run ASM setup on the last node
+      end
+      if var_provider_name == 'virtualbox'
+        node.vm.network :private_network, ip: var_public_lan.to_s + "." + (var_public_octet.to_i + i).to_s, virtualbox__hostonly: "vboxnet0"
+        node.vm.network :private_network, ip: var_private_lan.to_s + "." + (var_private_octet.to_i + i).to_s, virtualbox__intnet: "private"
+        build_vb(node, var_prefix_name + "-" + "var_vm_name#{i}", var_mem_size, var_cpus, var_group, box_disks_num, node.vm.hostname + "_u01.vdi", doasm, var_asm_disk_num, var_asm_storage, var_asm_disk_size, var_non_rotational)
+      else # else libvirt
+        node.vm.network "private_network", :libvirt__network_name => "vgt-hostonly_network", ip: var_public_lan.to_s + "." + (var_public_octet.to_i + i).to_s
+        node.vm.network "private_network", :libvirt__network_name => "vgt-private_network",  ip: var_private_lan.to_s + "." + (var_private_octet.to_i + i).to_s
+        build_kvm(node, var_prefix_name, var_mem_size, var_cpus, box_disks_num, var_vm_storage, doasm, var_asm_disk_num, var_asm_storage, var_asm_disk_size)
+      end # End var_provider_name == 'virtualbox'
+    end # End config.vm.define :node2 do |node|
+  end # End node loop
+end
+
+def build_vb(node, name, memory, cpus, group, vm_disks, vm_storage, doasm, asm_disks_num, asm_storage, asm_disk_size, nonrotational)
+  node.vm.provider "virtualbox" do |vb|
+    vb.name   = name
+    vb.memory = memory
+    vb.cpus   = cpus
+    vb.customize ["modifyvm", :id, "--groups", group] unless group.nil?
+
+    disk_num = 0
+    while disk_num < vm_disks do
+      vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--nonrotational', nonrotational]
+      disk_num += 1
+    end
+
+    # Make u01 vdisk
+    unless File.exist?(vm_storage)
+      vb.customize ['createhd', '--filename', vm_storage, '--size', 100 * 1024]
+    end # End unless File.exist?(vm_storage)
+    vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', vm_storage, '--nonrotational', nonrotational]
+    disk_num = disk_num.to_i + 1
+
+    # Make asm disks
+    num = 0
+    while num < asm_disks_num do
+      asm_disk = asm_storage + "asm_disk" + num.to_s + ".vdi"
+      if doasm == true
+        unless File.exist?(asm_disk)
+          vb.customize ['createhd', '--filename', asm_disk, '--size', asm_disk_size * 1024, '--format', 'VDI', '--variant', 'Fixed']
+        end # End unless File.exist?(asm_disk)
+        vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', asm_disk, '--mtype', 'shareable', '--nonrotational', nonrotational]
+        vb.customize ['modifymedium', 'disk', asm_disk, '--type', 'shareable']
+      else
+        vb.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', disk_num, '--device', 0, '--type', 'hdd', '--medium', asm_disk, '--mtype', 'shareable', '--nonrotational', nonrotational]
+      end # End doasm == true
+      disk_num += 1
+      num += 1
+    end # End while num < asm_disk_num do
+  end
+end
+
+def build_kvm(node, default_prefix, memory, cpus, vm_disks, vm_storage, doasm, asm_disks_num, asm_storage, asm_disk_size)
+  node.vm.provider "libvirt" do |libvirt|
+    libvirt.default_prefix = default_prefix
+    libvirt.driver = "kvm"
+    libvirt.memory = memory
+    libvirt.cpus   = cpus
+    libvirt.storage_pool_name = vm_storage
+
+    # Make vdisks
+    disk_num = 0
+    while disk_num < vm_disks do
+      libvirt.storage :file,
+        :size => '100G'      # defaults to 10G if unspecified!
+      disk_num += 1
+    end # End while disk_num < box_disks_num do
+
+    disk_num = disk_num.to_i + 1
+    libvirt.storage_pool_name = asm_storage
+
+    # Make asm disks
+    num = 0
+    while num < asm_disks_num do
+      asm_disk = asm_storage + "asm_disk" + num.to_s + ".vdi"
+      asm_disk_size = asm_disk_size.to_s + "G"
+      if doasm == true
+        libvirt.storage :file,
+          :path => prefix_name + '_asm_' + num.to_s,
+          :size => asm_disk_size,  # defaults to 10G if unspecified!
+          :cache => 'none',
+          :type => 'raw',               # defaults to 'qcow2' if unspecified!
+          :shareable => 'true'
+      else
+        libvirt.storage :file,
+          :path => prefix_name + '_asm_' + num.to_s,
+          :size => asm_disk_size,  # defaults to 10G if unspecified!
+          :cache => 'none',
+          :type => 'raw',               # defaults to 'qcow2' if unspecified!
+          :allow_existing => 'true',
+          :shareable => 'true'
+      end # End doasm == true
+      disk_num += 1
+      num += 1
+    end # End while num < asm_disk_num do
+  end
 end
 #----------------------------------------------------------
 # EndOfFile

@@ -31,8 +31,10 @@ sh ${ORA_INVENTORY}/orainstRoot.sh
 if [ "${ORESTART}" == "false" ]
 then
   sh ${GI_HOME}/root.sh
-  ssh root@${NODE2_HOSTNAME} sh ${ORA_INVENTORY}/orainstRoot.sh
-  ssh root@${NODE2_HOSTNAME} sh ${GI_HOME}/root.sh
+   for i in $(seq 1 ${VM_COUNT})
+    do ssh root@${VM_NAME}${i} sh ${ORA_INVENTORY}/orainstRoot.sh
+       ssh root@${VM_NAME}${i} sh ${GI_HOME}/root.sh
+  done
 else
   ${GI_HOME}/perl/bin/perl -I ${GI_HOME}/perl/lib -I ${GI_HOME}/crs/install ${GI_HOME}/crs/install/roothas.pl
 fi

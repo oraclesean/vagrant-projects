@@ -18,38 +18,28 @@
 #       Ruggero Citton - RAC Pack, Cloud Innovation and Solution Engineering Team
 #
 #    MODIFIED   (MM/DD/YY)
+#    sscott      07/15/21 - Add support for multi-node RAC
 #    rcitton     03/30/20 - VBox libvirt & kvm support
 #    rcitton     11/06/18 - Creation
 #
 #    REVISION
-#    20200330 - $Revision: 2.0.2.1 $
+#    20210715 - $Revision: 2.0.2.2 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
 . /vagrant/config/setup.env
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup /etc/hosts"
-echo "-----------------------------------------------------------------"
+. /vagrant/scripts/functions.sh
 
+info "Setup /etc/hosts" 1
 cat > /etc/hosts <<EOF
 127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
 ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
 EOF
 
-cat >> /etc/hosts <<EOF
-# Public host info
-${NODE1_PUBLIC_IP}  ${NODE1_FQ_HOSTNAME}  ${NODE1_HOSTNAME}
-${NODE2_PUBLIC_IP}  ${NODE2_FQ_HOSTNAME}  ${NODE2_HOSTNAME}
-# Private host info
-${NODE1_PRIV_IP}  ${NODE1_FQ_PRIVNAME}   ${NODE1_PRIVNAME}
-${NODE2_PRIV_IP}  ${NODE2_FQ_PRIVNAME}   ${NODE2_PRIVNAME}
-# Virtual host info
-${NODE1_VIP_IP}  ${NODE1_FQ_VIPNAME}    ${NODE1_VIPNAME}
-${NODE2_VIP_IP}  ${NODE2_FQ_VIPNAME}    ${NODE2_VIPNAME}
-EOF
+add_ips "$VM_COUNT" "$VM_NAME" "$DOMAIN_NAME" "Public entries"  "$PUBLIC_SUBNET"
+add_ips "$VM_COUNT" "$VM_NAME" "$DOMAIN_NAME" "Private entries" "$PRIVATE_SUBNET" "$PRIVATE_NETNAME" 
+add_ips "$VM_COUNT" "$VM_NAME" "$DOMAIN_NAME" "VIP entries"     "$VIP_SUBNET"     "$VIP_NETNAME"
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup SCAN on /etc/hosts"
-echo "-----------------------------------------------------------------"
+info "Setup SCAN on /etc/hosts" 1
 cat >> /etc/hosts <<EOF
 # SCAN
 ${SCAN_IP1}    ${FQ_SCAN_NAME}    ${SCAN_NAME}
@@ -57,9 +47,7 @@ ${SCAN_IP2}    ${FQ_SCAN_NAME}    ${SCAN_NAME}
 ${SCAN_IP3}    ${FQ_SCAN_NAME}    ${SCAN_NAME}
 EOF
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup /etc/resolv.conf"
-echo "-----------------------------------------------------------------"
+info "Setup /etc/resolv.conf" 1
 cat > /etc/resolv.conf <<EOF
 search ${DOMAIN_NAME}
 EOF

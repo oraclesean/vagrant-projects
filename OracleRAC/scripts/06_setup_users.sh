@@ -26,10 +26,9 @@
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
 . /vagrant/config/setup.env
+. /vagrant/scripts/functions.sh
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup oracle and grid user"
-echo "-----------------------------------------------------------------"
+info "Setup oracle and grid user" 1
 userdel -fr oracle
 groupdel oinstall
 groupdel dba
@@ -50,9 +49,7 @@ groupadd -g 1010 racdba
 useradd oracle -d /home/oracle -m -p $(echo "welcome1" | openssl passwd -1 -stdin) -g 1001 -G 1002,1003,1006,1007,1008,1009,1010
 useradd grid   -d /home/grid   -m -p $(echo "welcome1" | openssl passwd -1 -stdin) -g 1001 -G 1002,1003,1004,1005,1006
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Set oracle and grid limits"
-echo "-----------------------------------------------------------------"
+info "Set oracle and grid limits" 1
 cat << EOL >> /etc/security/limits.conf
 # Grid user
 grid soft nofile 131072
@@ -78,9 +75,7 @@ oracle soft stack 10240
 oracle hard stack 32768
 EOL
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Create GI_HOME and DB_HOME directories"
-echo "-----------------------------------------------------------------"
+info "Create GI_HOME and DB_HOME directories" 1
 mkdir -p ${GRID_BASE}
 mkdir -p ${DB_BASE}
 mkdir -p ${GI_HOME}
@@ -92,39 +87,19 @@ chown -R oracle:oinstall ${DB_BASE}
 chown -R oracle:oinstall ${DB_HOME}
 chmod -R ug+rw /u01
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Set user env"
-echo "-----------------------------------------------------------------"
-if [ `hostname` == ${NODE1_HOSTNAME} ]
-then
+info "Set user env" 1
+node_id=$(get_node_id)
   cat >> /home/grid/.bash_profile << EOF
 export ORACLE_HOME=${GI_HOME}
 export PATH=\$ORACLE_HOME/bin:$PATH
-export ORACLE_SID=+ASM1
+export ORACLE_SID=+ASM${node_id}
 EOF
 
   cat >> /home/oracle/.bash_profile << EOF
 export ORACLE_HOME=${DB_HOME}
 export PATH=\$ORACLE_HOME/bin:$PATH
-export ORACLE_SID=${DB_NAME}1
+export ORACLE_SID=${DB_NAME}${node_id}
 EOF
-fi
-
-if [ `hostname` == ${NODE2_HOSTNAME} ]
-then
-  cat >> /home/grid/.bash_profile << EOF
-export ORACLE_HOME=${GI_HOME}
-export PATH=\$ORACLE_HOME/bin:$PATH
-export ORACLE_SID=+ASM2
-EOF
-
-  cat >> /home/oracle/.bash_profile << EOF
-export ORACLE_HOME=${DB_HOME}
-export PATH=\$ORACLE_HOME/bin:$PATH
-export ORACLE_SID=${DB_NAME}2
-EOF
-fi
-
 
 #----------------------------------------------------------
 # EndOfFile

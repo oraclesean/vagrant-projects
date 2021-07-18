@@ -25,9 +25,9 @@
 #    20200330 - $Revision: 2.0.2.1 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setup chronyd service"
-echo "-----------------------------------------------------------------"
+. /vagrant/scripts/functions.sh
+
+info "Setup chronyd service" 1
 systemctl enable chronyd
 systemctl restart chronyd
 chronyc -a makestep

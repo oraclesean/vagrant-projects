@@ -25,9 +25,9 @@
 #    20200330 - $Revision: 2.0.2.1 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Setting-up /u01 disk"
-echo "-----------------------------------------------------------------"
+. /vagrant/scripts/functions.sh
+
+info "Setting-up /u01 disk" 1
 # Single GPT partition for the whole disk
 BOX_DISK_NUM=$1
 PROVIDER=$2

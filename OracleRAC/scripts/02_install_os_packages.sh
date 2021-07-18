@@ -25,16 +25,14 @@
 #    20200330 - $Revision: 2.0.2.1 $
 #
 #│▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒│
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Install base packages"
-echo "-----------------------------------------------------------------"
+. /vagrant/scripts/functions.sh
+
+info "Install base packages" 1
 yum install -y deltarpm expect tree unzip zip 
 yum install -y oracle-database-preinstall-18c
 yum install -y oracleasm-support
 
-echo "-----------------------------------------------------------------"
-echo -e "${INFO}`date +%F' '%T`: Add extra OS packages"
-echo "-----------------------------------------------------------------"
+info "Add extra OS packages" 1
 yum install -y bc
 yum install -y binutils
 yum install -y compat-libcap1
@@ -80,9 +78,7 @@ yum install -y targetcli
 yum install -y unixODBC
 yum install -y chrony
 
-#echo "-----------------------------------------------------------------"
-#echo -e "${INFO}`date +%F' '%T`: Perform yum update"
-#echo "-----------------------------------------------------------------"
+#info "Perform yum update" 1
 #yum -y update
 
 #----------------------------------------------------------
