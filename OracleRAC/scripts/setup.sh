@@ -57,6 +57,34 @@ run_user_scripts() {
     done
 }
 
+make_07_setup_user_equ() {
+  expectfile="/vagrant/scripts/07_setup_user_equ.expect"
+
+cat > $expectfile << EOF
+#!/usr/bin/expect -f
+set timeout 20
+set username [lindex \$argv 0]
+set password [lindex \$argv 1]
+set nodes    [lindex \$argv 2]
+set path     [lindex \$argv 3]
+
+spawn \$path -user \$username -hosts \$nodes -noPromptPassphrase -advanced
+
+expect "Do you want to continue and let the script make the above mentioned changes (yes/no)?" { send "yes\\n" }
+EOF
+
+   for i in $(seq 1 $1)
+    do cat >> $expectfile << EOF
+expect  "password:" { send "\$password\\n" }
+expect  "password:" { send "\$password\\n" }
+EOF
+  done
+
+cat >> $expectfile << EOF
+expect { default {} }
+EOF
+}
+
 make_09_gi_installation() {
 cat > /vagrant/scripts/09_gi_installation.sh <<EOF
 . /vagrant/config/setup.env
@@ -96,24 +124,14 @@ cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
     oracle.install.crs.config.ClusterConfiguration=STANDALONE \\
     oracle.install.crs.config.configureAsExtendedCluster=false \\
     oracle.install.crs.config.clusterName=${CLUSTER_NAME} \\
+    oracle_install_crs_ConfigureMgmtDB=${NOMGMTDB} \\
 EOF
-
-if [ "${NOMGMTDB}" == "true" ]
-then
-cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
-    oracle_install_crs_ConfigureMgmtDB=false \\
-EOF
-else
-cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
-    oracle_install_crs_ConfigureMgmtDB=true \\
-EOF
-fi
 
 if [ "${ORESTART}" == "false" ]
 then
   cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
     oracle.install.crs.config.clusterNodes=$(cluster_nodelist "${VM_COUNT}" "${VM_NAME}" "${DOMAIN_NAME}" "${VIP_NETNAME}") \\
-    oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:${PUBLIC_SUBNET}:1,${NET_DEVICE2}:${PRIVATE_SUBNET}:5 \\
+    oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:$(echo "${PUBLIC_SUBNET}" | cut -d. -f1-3).0:1,${NET_DEVICE2}:$(echo "${PRIVATE_SUBNET}" | cut -d. -f1-3).0:5 \\
 EOF
 fi
 
@@ -222,7 +240,7 @@ if [ "${ORESTART}" == "false" ]
 then
   cat >> /vagrant/scripts/09_gi_installation.sh <<EOF
     oracle.install.crs.config.clusterNodes=$(cluster_nodelist "${VM_COUNT}" "${VM_NAME}" "${DOMAIN_NAME}" "${VIP_NETNAME}") \\
-    oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:${PUBLIC_SUBNET}:1,${NET_DEVICE2}:${PRIVATE_SUBNET}:5 \\
+    oracle.install.crs.config.networkInterfaceList=${NET_DEVICE1}:$(echo "${PUBLIC_SUBNET}" | cut -d. -f1-3).0:1,${NET_DEVICE2}:$(echo "${PRIVATE_SUBNET}" | cut -d. -f1-3).0:5 \\
 EOF
 fi
 
@@ -507,7 +525,6 @@ fi
 info "Setup the environment variables" 1
 . /vagrant/config/setup.env
 
-
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
 # ---------------------------------------------------------------------
@@ -517,43 +534,36 @@ then
   echo "Partition ratio is set to $P1_RATIO" >/dev/null
 else
   error "Partition ratio option must be an integer, exiting..."
-  exit 1
 fi
 
 if [ $P1_RATIO -lt 10 ] && [ $P1_RATIO -gt 80 ] 
 then
   error "Partition ratio should be a value between 10 and 80, exiting..."
-  exit 1
 fi 
 
 if [ "${ASM_LIB_TYPE}" != "ASMLIB" ] && [ "${ASM_LIB_TYPE}" != "ASMFD" ]
 then
   error "Parameter 'asm_lib_type' must be 'ASMLIB' or 'ASMFD', exiting..."
-  exit 1
 fi
 
 if [ "${ORESTART}" != "true" ] && [ "${ORESTART}" != "false" ]
 then
   error "Parameter 'orestart' must be 'true' or 'false', exiting..."
-  exit 1
 fi
 
 if [ "${NOMGMTDB}" != "true" ] && [ "${NOMGMTDB}" != "false" ]
 then
   error "Parameter 'nomgmtdb' must be 'true' or 'false', exiting..."
-  exit 1
 fi
 
 if [ "${DB_TYPE}" != "SI" ] && [ "${DB_TYPE}" != "RACONE" ] && [ "${DB_TYPE}" != "RAC" ]
 then
   error "Parameter 'db_type' must be 'SI' or 'RACONE' or 'RAC', exiting..."
-  exit 1
 fi
 
 if [[ "${ORESTART}" == "true" && ("${DB_TYPE}" == "RACONE" || "${DB_TYPE}" == "RAC" ) ]]
 then
   error "Oracle Restart supports 'SI' only, exiting..."
-  exit 1
 fi
 
 # ---------------------------------------------------------------------
@@ -606,6 +616,7 @@ then
 
   # setup ssh equivalence (node1 only)
   info "Setup user equivalence" 1
+  make_07_setup_user_equ ${VM_COUNT}
   node_list="$(nodelist $VM_COUNT $VM_NAME | sed s'/,/ /g')"
   expect /vagrant/scripts/07_setup_user_equ.expect grid   "${GRID_PASSWORD}"   "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
   expect /vagrant/scripts/07_setup_user_equ.expect oracle "${ORACLE_PASSWORD}" "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
@@ -643,7 +654,7 @@ fi
 
 if [ `get_node_id` -eq 1 ] && [ "${ORESTART}" == "false" ]
 then
-  info "Make GI install command" 1
+  info "Make GI install command - RAC" 1
   make_09_gi_installation ;
 
   info "Grid Infrastructure installation as 'RAC'" 0
@@ -653,13 +664,13 @@ then
 
   #-------------------------------------------------------
   info "Set root user equivalence" 1
+  make_07_setup_user_equ ${VM_COUNT}
   node_list="$(nodelist $VM_COUNT $VM_NAME | sed s'/,/ /g')"
   expect /vagrant/scripts/07_setup_user_equ.expect root "${ROOT_PASSWORD}" "${node_list}" "${GI_HOME}/oui/prov/resources/scripts/sshUserSetup.sh"
 
-  info "Grid infrastructure setup" 1
+  info "Grid Infrastructure setup" 1
   sh /vagrant/scripts/10_gi_setup.sh
   #-------------------------------------------------------
-
   info "Make GI config command" 1
   make_11_gi_config ;
 
@@ -694,8 +705,8 @@ then
   info "RDBMS software installation" 1
   su - oracle -c 'sh /vagrant/scripts/13_RDBMS_software_installation.sh'
   sh ${DB_HOME}/root.sh
-   for i in $(seq 1 $VM_COUNT)
-    do ssh root@${VM_NAME}${i} sh ${DB_HOME}root.sh 
+   for i in $(seq 2 $VM_COUNT)
+    do ssh root@${VM_NAME}${i} sh ${DB_HOME}/root.sh 
   done
 
   if [ "${DB_MAJOR}" == "12" ]
@@ -717,7 +728,7 @@ then
 
 elif [ "${ORESTART}" == "true" ]
 then
-  info "Making GI install command" 1
+  info "Making GI install command - Restart" 1
   make_09_gi_installation ;
 
   info "Grid Infrastructure installation as 'ORestart'" 0

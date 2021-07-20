@@ -464,7 +464,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         node.vm.network "private_network", :libvirt__network_name => "vgt-private_network",  ip: var_private_lan.to_s + "." + (var_private_octet.to_i + i).to_s
         build_kvm(node, var_prefix_name, var_mem_size, var_cpus, box_disks_num, var_vm_storage, doasm, var_asm_disk_num, var_asm_storage, var_asm_disk_size)
       end # End var_provider_name == 'virtualbox'
-    end # End config.vm.define :node2 do |node|
+    end # End do |node|
   end # End node loop
 end
 
