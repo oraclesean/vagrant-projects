@@ -5,4 +5,10 @@ CVS
 .vagrant
 .zip
 *.swp
-
+config/setup.env
+scripts/07_setup_user_equ.expect
+scripts/09_gi_installation.sh
+scripts/11_gi_config.sh
+scripts/13_RDBMS_software_installation.sh
+scripts/14_create_database.sh
+*.vdi
